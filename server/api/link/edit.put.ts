@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { LinkSchema } from '@/schemas/link'
+import { LinkSchema } from '@@/schemas/link'
 
 export default eventHandler(async (event) => {
   const { previewMode } = useRuntimeConfig(event).public
@@ -27,10 +27,12 @@ export default eventHandler(async (event) => {
       expiration,
       metadata: {
         expiration,
+        url: newLink.url,
+        comment: newLink.comment,
       },
     })
     setResponseStatus(event, 201)
-    const shortLink = `${getRequestProtocol(event)}://${getRequestHost(event)}/${link.slug}`
+    const shortLink = `${getRequestProtocol(event)}://${getRequestHost(event)}/${newLink.slug}`
     return { link: newLink, shortLink }
   }
 })
