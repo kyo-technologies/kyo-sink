@@ -1,31 +1,55 @@
-import type { z } from 'zod'
-import type { SelectStatement } from 'sql-bricks'
-import type { FilterSchema, QuerySchema } from '@/schemas/query'
+import type { RawBuilder } from 'kysely'
+import type { Query } from '#shared/schemas/query'
+import type { BlobsKey } from './access-log'
+import { sql } from 'kysely'
+import { blobsMap } from './access-log'
 
-export type Query = z.infer<typeof QuerySchema>
-export type Filter = z.infer<typeof FilterSchema>
+export type { Query }
 
-export function query2filter(query: Query): Filter {
-  const filter: Filter = {}
-  if (query.id)
-    filter.index1 = query.id
+function queryValues(value: string, omitEmpty = false): string[] {
+  if ([...value].some((character) => {
+    const code = character.charCodeAt(0)
+    return code <= 0x1F || code === 0x7F
+  })) {
+    throw new Error('Analytics filters must not contain control characters')
+  }
 
-  Object.keys(logsMap).forEach((key) => {
-    // @ts-expect-error todo
-    if (query[key]) {
-      // @ts-expect-error todo
-      filter[logsMap[key]] = query[key]
-    }
-  })
-  return filter
+  const values = value.split(',')
+  return omitEmpty ? values.filter(Boolean) : values
 }
 
-export function appendTimeFilter(sql: SelectStatement, query: Query): unknown {
-  if (query.startAt)
-    sql.where(SqlBricks.gte('timestamp', SqlBricks(`toDateTime(${query.startAt})`)))
+function inFilter(column: string, values: string[]): RawBuilder<boolean> | undefined {
+  if (!values.length)
+    return
 
-  if (query.endAt)
-    sql.where(SqlBricks.lte('timestamp', SqlBricks(`toDateTime(${query.endAt})`)))
+  return sql<boolean>`${sql.ref(column)} in (${sql.join(values.map(value => sql.lit(value)))})`
+}
 
-  return sql
+export function buildAnalyticsFilter(query: Query): RawBuilder<boolean> | undefined {
+  const filters: RawBuilder<boolean>[] = []
+  if (query.id) {
+    const filter = inFilter('index1', queryValues(query.id, true))
+    if (filter)
+      filters.push(filter)
+  }
+
+  const blobKeys = Object.keys(blobsMap) as BlobsKey[]
+  for (const blobKey of blobKeys) {
+    const queryKey = blobsMap[blobKey] as keyof Query
+    const value = query[queryKey]
+    if (typeof value === 'string' && value)
+      filters.push(inFilter(blobKey, queryValues(value))!)
+  }
+
+  if (query.startAt) {
+    const startTimestamp = Math.floor(Number(query.startAt))
+    filters.push(sql<boolean>`${sql.ref('timestamp')} >= toDateTime(${sql.lit(startTimestamp)})`)
+  }
+
+  if (query.endAt) {
+    const endTimestamp = Math.floor(Number(query.endAt))
+    filters.push(sql<boolean>`${sql.ref('timestamp')} <= toDateTime(${sql.lit(endTimestamp)})`)
+  }
+
+  return filters.length ? sql<boolean>`${sql.join(filters, sql` and `)}` : undefined
 }

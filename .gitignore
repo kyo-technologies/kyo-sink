@@ -10,7 +10,7 @@ dist
 node_modules
 
 # Logs
-logs
+./logs
 *.log
 
 # Misc
@@ -23,6 +23,20 @@ logs
 .env.*
 !.env.example
 .wrangler
+wrangler.deploy.jsonc
 site
 cache
 public/world.json
+.dev.*
+.kiro/steering/locale.md
+
+.claude
+.opencode
+.agents
+skills
+!skills/sink
+
+opencode.json
+
+# Local deepwork session state
+.slim/deepwork/
